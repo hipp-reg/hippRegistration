@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="utf-8" />
-  <title>Hipp Registration — Attendance by Name + Birthday</title>
+  <title>Hipp Registration</title>
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <style>
     :root{
@@ -65,7 +65,7 @@
     form .row{display:flex;gap:12px;flex-wrap:wrap}
     .col{flex:1;min-width:140px}
     label{display:block;margin-top:10px;font-weight:700;color:var(--accent)}
-    input[type="text"],input[type="email"],input[type="tel"],input[type="date"]{
+    input[type="text"],input[type="email"],input[type="tel"],input[type="date"],input[type="password"]{
       width:100%;padding:10px;border-radius:8px;border:1px solid #dcdcdc;font-size:14px;box-sizing:border-box;background:rgba(255,255,255,0.98);
     }
     .small{max-width:90px}
@@ -101,6 +101,13 @@
 
     .field-error{color:var(--error);font-size:13px;margin-top:6px}
     .field-success{color:var(--success);font-size:13px;margin-top:6px}
+
+    /* Login modal tweaks */
+    #loginModal h3{font-size:18px}
+    .overlay{transition:opacity .12s ease}
+    .popup{transition:transform .12s ease,opacity .12s ease}
+
+    .logout-btn{background:#fff;border:1px solid #ddd;padding:6px 10px;border-radius:8px;cursor:pointer}
   </style>
 
   <!-- SheetJS for XLSX generation -->
@@ -181,6 +188,7 @@
           <button class="primary" id="downloadTodayBtn">Download Today's Registrations</button>
           <button class="ghost" id="downloadFilteredBtn">Download Filtered Results</button>
           <button class="ghost" id="clearAllBtn">Clear All</button>
+          <button id="logoutBtn" class="logout-btn" title="Logout admin" style="margin-left:8px;display:none">Logout</button>
         </div>
       </div>
 
@@ -227,6 +235,23 @@
   <div id="popup" class="popup" role="dialog" aria-modal="true" aria-hidden="true">
     <p id="popupMessage"></p>
     <button onclick="closePopup()">OK</button>
+  </div>
+
+  <!-- Login modal (admin) -->
+  <div id="loginOverlay" class="overlay" aria-hidden="true" style="display:none"></div>
+  <div id="loginModal" class="popup" role="dialog" aria-modal="true" aria-hidden="true" style="display:none;min-width:320px">
+    <h3 style="margin:0 0 8px;color:#3399ff">Admin Login</h3>
+    <div style="text-align:left">
+      <label style="font-weight:700;color:#333;display:block;margin-top:6px">Username</label>
+      <input id="loginUser" type="text" style="width:100%;padding:8px;border-radius:6px;border:1px solid #ddd" />
+      <label style="font-weight:700;color:#333;display:block;margin-top:8px">Password</label>
+      <input id="loginPass" type="password" style="width:100%;padding:8px;border-radius:6px;border:1px solid #ddd" />
+      <div id="loginError" style="color:#d9534f;font-weight:700;margin-top:8px;display:none"></div>
+      <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:12px">
+        <button id="loginCancel" class="ghost" type="button">Cancel</button>
+        <button id="loginSubmit" class="primary" type="button">Sign in</button>
+      </div>
+    </div>
   </div>
 
   <script>
@@ -374,6 +399,8 @@
     const downloadFilteredBtn = document.getElementById('downloadFilteredBtn');
     const clearAllBtn = document.getElementById('clearAllBtn');
 
+    const logoutBtn = document.getElementById('logoutBtn');
+
     // initialize counters
     const existing = loadAllDays();
     let counter = existing.length ? Math.max(...existing.map(p => p.id)) + 1 : 1;
@@ -400,7 +427,12 @@
           c.style.display = 'none'; c.classList.remove('active'); c.setAttribute('aria-hidden','true');
         }
       });
-      if(id === 'participants') renderTable();
+      if(id === 'participants') {
+        // show logout button if authenticated
+        if(isAuthenticated()) logoutBtn.style.display = 'inline-block';
+        else logoutBtn.style.display = 'none';
+        renderTable();
+      }
     }
 
     /* -------------------------
@@ -806,6 +838,112 @@
     // expose functions used by inline handlers
     window.validate = validate;
     window.removeParticipant = removeParticipant;
+
+    /* -------------------------
+       Admin login protection for Registered Participants tab
+       ------------------------- */
+    const ADMIN_USER = 'admin';
+    const ADMIN_PASS = 'Admin!Password1!';
+
+    const loginOverlay = document.getElementById('loginOverlay');
+    const loginModal = document.getElementById('loginModal');
+    const loginUser = document.getElementById('loginUser');
+    const loginPass = document.getElementById('loginPass');
+    const loginError = document.getElementById('loginError');
+    const loginSubmit = document.getElementById('loginSubmit');
+    const loginCancel = document.getElementById('loginCancel');
+
+    let pendingTabToOpen = null;
+
+    function isAuthenticated(){
+      return sessionStorage.getItem('hipp_auth') === 'true';
+    }
+
+    function showLoginModal(forTab){
+      pendingTabToOpen = forTab || 'participants';
+      loginError.style.display = 'none';
+      loginUser.value = '';
+      loginPass.value = '';
+      loginOverlay.style.display = 'block';
+      loginModal.style.display = 'block';
+      loginOverlay.setAttribute('aria-hidden','false');
+      loginModal.setAttribute('aria-hidden','false');
+      loginUser.focus();
+    }
+
+    function closeLoginModal(){
+      loginOverlay.style.display = 'none';
+      loginModal.style.display = 'none';
+      loginOverlay.setAttribute('aria-hidden','true');
+      loginModal.setAttribute('aria-hidden','true');
+      pendingTabToOpen = null;
+    }
+
+    function handleLoginAttempt(){
+      const u = (loginUser.value || '').trim();
+      const p = (loginPass.value || '');
+      if(u === ADMIN_USER && p === ADMIN_PASS){
+        sessionStorage.setItem('hipp_auth','true');
+        closeLoginModal();
+        // open the pending tab now that we're authenticated
+        if(pendingTabToOpen) switchTab(pendingTabToOpen);
+        return;
+      }
+      loginError.textContent = 'Invalid credentials';
+      loginError.style.display = 'block';
+      loginPass.value = '';
+      loginPass.focus();
+    }
+
+    loginSubmit.addEventListener('click', handleLoginAttempt);
+    loginPass.addEventListener('keydown', (e)=>{ if(e.key === 'Enter') handleLoginAttempt(); });
+    loginUser.addEventListener('keydown', (e)=>{ if(e.key === 'Enter') loginPass.focus(); });
+
+    loginCancel.addEventListener('click', ()=>{
+      closeLoginModal();
+      // optionally return to registration tab
+      switchTab('registration');
+    });
+
+    loginOverlay.addEventListener('click', ()=>{
+      closeLoginModal();
+      switchTab('registration');
+    });
+
+    // override tab click behavior to require auth for participants tab
+    tabs.forEach(tab=>{
+      tab.addEventListener('click', (ev)=>{
+        const target = tab.dataset.tab;
+        if(target === 'participants' && !isAuthenticated()){
+          ev.preventDefault();
+          showLoginModal('participants');
+          return;
+        }
+        // otherwise allow normal behavior (existing listeners will handle)
+      });
+    });
+
+    // logout handling
+    function logoutAdmin(){
+      sessionStorage.removeItem('hipp_auth');
+      logoutBtn.style.display = 'none';
+      // if currently on participants tab, switch back to registration
+      const activeTab = Array.from(tabs).find(t => t.classList.contains('active'));
+      if(activeTab && activeTab.dataset.tab === 'participants'){
+        switchTab('registration');
+      }
+      showPopup('Logged out', 'success');
+    }
+    window.logoutAdmin = logoutAdmin;
+
+    logoutBtn.addEventListener('click', ()=>{
+      logoutAdmin();
+    });
+
+    // show logout button if already authenticated on load
+    if(isAuthenticated()){
+      logoutBtn.style.display = 'inline-block';
+    }
 
     // initial render
     renderTable();
